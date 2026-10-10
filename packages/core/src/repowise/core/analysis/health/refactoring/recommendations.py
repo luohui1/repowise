@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from repowise.core.analysis.health.grading import TARGET_SCORE
 from repowise.core.analysis.pr_blast import rank_tests_by_reach
+from repowise.core.analysis.test_collection import narrow_scopes
 from repowise.core.analysis.test_reachability import (
     DEFAULT_CALL_DEPTH,
     MAX_TESTS_PER_TARGET,
@@ -32,7 +33,6 @@ from repowise.core.analysis.test_reachability import (
     tests_matching_by_name,
     tests_reaching_by_tier,
 )
-from repowise.core.analysis.test_selection import expand_test_scopes
 from repowise.core.code_origin import ship_rank
 from repowise.core.test_paths import is_test_support_path, paired_test_names
 
@@ -1049,14 +1049,20 @@ async def _validation_inputs(
     unreached = sorted(unanswered - inferred.keys())
     if unreached:
         inferred.update(tests_matching_by_name(unreached, test_files))
+    walked = {path: reached.all_tests or tuple(reached.tests) for path, reached in inferred.items()}
+    narrowed = await narrow_scopes(session, repository_id, walked, test_files)
     inferred = {
-        path: _expand_scopes(path, reached, test_files) for path, reached in inferred.items()
+        path: _expand_scopes(path, reached, narrowed[path]) for path, reached in inferred.items()
     }
     return ValidationInputs(measured=measured, inferred=inferred, test_files=test_files)
 
 
-def _expand_scopes(path: str, reached: ReachedBy, test_files: set[str]) -> ReachedBy:
-    """*reached* with a conftest or test package it stopped at replaced by the tests under it.
+def _expand_scopes(path: str, reached: ReachedBy, expanded: list[str]) -> ReachedBy:
+    """*reached* with a conftest or test package it stopped at replaced by *expanded*.
+
+    *expanded* is :func:`~repowise.core.analysis.test_collection.narrow_scopes`'
+    answer: a conftest reached only through its imports stands for the tests
+    the selection narrows it to, any other scope for the tests under it.
 
     A validation command must name tests a runner collects; ``pytest
     tests/conftest.py`` runs nothing. A scope with no runnable test under it
@@ -1069,7 +1075,6 @@ def _expand_scopes(path: str, reached: ReachedBy, test_files: set[str]) -> Reach
     reads as incomplete instead of as the whole answer.
     """
     found = reached.all_tests or tuple(reached.tests)
-    expanded = expand_test_scopes(found, test_files)
     if tuple(expanded) == tuple(found):
         return reached
     ranked = rank_tests(path, expanded)
