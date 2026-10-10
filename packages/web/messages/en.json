@@ -1132,6 +1132,7 @@
     }
   },
   "loading": {
+    "page": "Loading page",
     "repo": "Loading",
     "architecture": "Loading architecture",
     "commits": "Loading commits",

@@ -1132,6 +1132,7 @@
     }
   },
   "loading": {
+    "page": "正在加载页面",
     "repo": "正在加载",
     "architecture": "正在加载架构",
     "commits": "正在加载提交",
